@@ -118,7 +118,7 @@ class InterestCandidateAttention(nn.Module):
         masked_weights = attention_weights * topK_mask    # [batch_size, num_extracted_interests]
         masked_weights = masked_weights.unsqueeze(-1)     # [batch_size, num_extracted_interests, 1]
         #'''
-        masked_weights = attention_weights.unsqueeze(-1)
+        #masked_weights = attention_weights.unsqueeze(-1)
         user_representations = torch.sum(masked_weights * interest_representations, dim=1)   # [batch_size, user_dim]
         #user_representations = torch.sum(interest_representations, dim=1)
 
