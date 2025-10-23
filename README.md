@@ -1,17 +1,17 @@
 # AMMEPP
 
-## Dataset
+## Datasets
 Download the datasets (MIND-small and MIND-large) from https://msnews.github.io/.
 
 ## Environment
 
 
-## Data Preprocessing and Popularity Preprocessing
-Data Preprocessing
+## Preprocessing
+### Data Preprocessing
 <pre><code>python data_preprocess.py --dataset MIND-small</code></pre>
 <pre><code>python data_preprocess.py --dataset MIND-large</code></pre>
 
-Popularity Preprocessing
+### Popularity Preprocessing
 <pre><code>python popularity_preprocess.py --dataset MIND-small</code></pre>
 <pre><code>python popularity_preprocess.py --dataset MIND-large</code></pre>
 
