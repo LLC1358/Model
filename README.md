@@ -3,9 +3,6 @@
 ## Datasets
 Download the datasets (MIND-small and MIND-large) from https://msnews.github.io/.
 
-## Environment
-
-
 ## Preprocessing
 ### Data Preprocessing
 <pre><code>python data_preprocess.py --dataset MIND-small</code></pre>
