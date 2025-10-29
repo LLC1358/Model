@@ -26,3 +26,4 @@ Train, validate, and evaluate the AMMEPP on the MIND-small dataset:
 <pre><code>python main.py --dataset MIND-small</code></pre>
 Train, validate, and evaluate the AMMEPP on the MIND-large dataset:
 <pre><code>python main.py --dataset MIND-large</code></pre>
+Submit the prediction.txt to https://codalab.lisn.upsaclay.fr/competitions/420 to obtain the evaluation scores.
