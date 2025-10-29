@@ -15,6 +15,8 @@ parser.add_argument('--semantic_similar_news', type=int, default=7)
 parser.add_argument('--cold_start_news', type=int, default=0)
 parser.add_argument('--popularity_level', type=int, default=8)
 parser.add_argument('--recency_group', type=int, default=3)
+parser.add_argument('--cold_start_news_aware', type=bool, default=True)
+parser.add_argument('--log_transformation', type=bool, default=False)
 opt = parser.parse_args()
 
 news_index = pickle.load(open('datasets/' + opt.dataset + '/news_index.txt', 'rb'))
@@ -110,6 +112,7 @@ with open(save_path, "wb") as f:
 
 ###############################################################
 
+'''
 # 2. 計算各個新聞的流行度: news_clickNum_1.txt
 save_path = 'datasets/' + opt.dataset + '/news_click_num_1.txt'
 
@@ -117,6 +120,7 @@ news_click_num_log = np.log2(news_click_num + 1)
 
 with open(save_path, "wb") as f:
     pickle.dump(news_click_num_log, f)
+'''
 
 ###############################################################
 
@@ -124,15 +128,16 @@ with open(save_path, "wb") as f:
 save_path = 'datasets/' + opt.dataset + '/news_click_num_2.txt'
 
 news_click_num_filled = news_click_num.copy()
-#news_click_num_filled = news_click_num_log.copy()
+if opt.cold_start_news_aware:
+    for news_idx in range(len(news_click_num_filled)):
+        if news_click_num[news_idx] <= opt.cold_start_news:
+            similar_news_idx = similar_news[news_idx]
+            similar_news_clicks = news_click_num[similar_news_idx]
+            mean_clicks = np.mean(similar_news_clicks[similar_news_clicks > 0]) if np.any(similar_news_clicks > 0) else 0
+            news_click_num_filled[news_idx] = mean_clicks
 
-for news_idx in range(len(news_click_num_filled)):
-    if news_click_num[news_idx] <= opt.cold_start_news:
-        similar_news_idx = similar_news[news_idx]
-        similar_news_clicks = news_click_num[similar_news_idx]
-        mean_clicks = np.mean(similar_news_clicks[similar_news_clicks > 0]) if np.any(similar_news_clicks > 0) else 0
-        news_click_num_filled[news_idx] = mean_clicks
-        #news_click_num_filled[news_idx] = np.log2(mean_clicks + 1)
+if opt.log_transformation:
+    news_click_num_filled = np.log2(news_click_num_filled + 1)
 
 with open(save_path, "wb") as f:
     pickle.dump(news_click_num_filled, f)
@@ -144,13 +149,10 @@ save_path = 'datasets/' + opt.dataset + '/popularity_level.txt'
 
 # sorted_indices = [    0 52719 52720 ... 14217 33900 11466]
 sorted_indices = np.argsort(news_click_num_filled)   # news_id 依點擊次數由小到大排序
-#sorted_indices = np.argsort(news_click_num_log)   # news_id 依點擊次數由小到大排序
 num_news = len(news_click_num_filled)
-#num_news = len(news_click_num_log)
 group_size = num_news // opt.popularity_level
 
 popularity_levels = np.zeros_like(news_click_num_filled, dtype=np.int32)
-#popularity_levels = np.zeros_like(news_click_num_log, dtype=np.int32)
 
 for group_id in range(opt.popularity_level):
     start_idx = group_id * group_size
