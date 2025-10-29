@@ -10,13 +10,19 @@ Download the pre-trained word vectors (glove.840B.300d.zip) from https://github.
 
 ## 2 Preprocessing
 ### 2.1 Data Preprocessing
+Preprocess the raw data of the MIND-small dataset:
 <pre><code>python data_preprocess.py --dataset MIND-small</code></pre>
+Preprocess the raw data of the MIND-large dataset:
 <pre><code>python data_preprocess.py --dataset MIND-large</code></pre>
 
 ### 2.2 Popularity Preprocessing
+Preprocess the popularity-related data of the MIND-small dataset:
 <pre><code>python popularity_preprocess.py --dataset MIND-small</code></pre>
+Preprocess the popularity-related data of the MIND-large dataset:
 <pre><code>python popularity_preprocess.py --dataset MIND-large</code></pre>
 
 ## 3 Training, Validation, and Test
+Train, validate, and evaluate the AMMEPP on the MIND-small dataset:
 <pre><code>python main.py --dataset MIND-small</code></pre>
+Train, validate, and evaluate the AMMEPP on the MIND-large dataset:
 <pre><code>python main.py --dataset MIND-large</code></pre>
