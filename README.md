@@ -1,8 +1,8 @@
 # AMMEPP
-This repository contains the implementation of AMMEPP, a personalized news recommendation model that adaptively models users’ multiple interests and enhances news popularity prediction to address cold-start problems. The model is evaluated on the MIND-small and MIND-large datasets.
+This repository contains the implementation of AMMEPP, a personalized news recommendation model that adaptively models users’ multiple interests and enhances news popularity prediction to address cold-start problems.
 
 ## 1. Datasets
-Download the benchmark datasets MIND-small and MIND-large from the official Microsoft News dataset page: from https://msnews.github.io/.
+Download the datasets MIND-small and MIND-large from the official Microsoft News dataset page: from https://msnews.github.io/.
 
 ## 2. Preprocessing
 ### 2.1 Data Preprocessing
