@@ -104,23 +104,39 @@ class InterestCandidateAttention(nn.Module):
         super(InterestCandidateAttention, self).__init__()
         self.M = M
 
-    def forward(self, interest_representations: torch.Tensor, candidate_news_representation: torch.Tensor, unique_category_counts: torch.Tensor):
+    def forward(self, interest_representations: torch.Tensor, candidate_news_representation: torch.Tensor, unique_category_counts: torch.Tensor, interest_adaptive, candidate_aware):
         bs, K, d = interest_representations.shape                                                                      # [batch_size, num_extracted_interests, interest_dimension]
         attention_weights = torch.sum(interest_representations * candidate_news_representation.unsqueeze(1), dim=-1)   # [batch_size, num_extracted_interests]
-        #'''
-        dynamic_K = torch.ceil(torch.log2(self.M * unique_category_counts.float())).long().clamp(min=1, max=K)         # [batch_size]
         
-        topK_mask = torch.zeros_like(attention_weights)   # [batch_size, num_extracted_interests]
-        for i in range(bs):
-            cur_K = dynamic_K[i]
-            topK_idx = attention_weights[i].topk(cur_K.item(), largest=True, sorted=False).indices
-            topK_mask[i, topK_idx] = 1
-        masked_weights = attention_weights * topK_mask    # [batch_size, num_extracted_interests]
-        masked_weights = masked_weights.unsqueeze(-1)     # [batch_size, num_extracted_interests, 1]
-        #'''
-        #masked_weights = attention_weights.unsqueeze(-1)
-        user_representations = torch.sum(masked_weights * interest_representations, dim=1)   # [batch_size, user_dim]
-        #user_representations = torch.sum(interest_representations, dim=1)
+        if interest_adaptive:
+            dynamic_K = torch.ceil(torch.log2(self.M * unique_category_counts.float())).long().clamp(min=1, max=K)     # [batch_size]
+            topK_mask = torch.zeros_like(attention_weights)                                                            # [batch_size, num_extracted_interests]
+            for i in range(bs):
+                cur_K = dynamic_K[i]
+                topK_idx = attention_weights[i].topk(cur_K.item(), largest=True, sorted=False).indices
+                topK_mask[i, topK_idx] = 1
+
+            # interest_adaptive + candidate_aware
+            if candidate_aware:
+                masked_weights = attention_weights * topK_mask  # [batch_size, num_extracted_interests]
+                masked_weights = masked_weights.unsqueeze(-1)   # [batch_size, num_extracted_interests, 1]
+                user_representations = torch.sum(masked_weights * interest_representations, dim=1)   # [batch_size, user_dim]
+
+            # interest_adaptive + w/o candidate_aware
+            else:
+                masked_weights = topK_mask                      # [batch_size, num_extracted_interests]
+                masked_weights = masked_weights.unsqueeze(-1)   # [batch_size, num_extracted_interests, 1]
+                user_representations = torch.sum(masked_weights * interest_representations, dim=1)   # [batch_size, user_dim]
+
+        else:
+            # w/o interest_adaptive + candidate_aware
+            if candidate_aware:
+                masked_weights = attention_weights.unsqueeze(-1)
+                user_representations = torch.sum(masked_weights * interest_representations, dim=1)   # [batch_size, user_dim]
+
+            # w/o interest_adaptive + w/o candidate_aware
+            else: 
+                user_representations = torch.sum(interest_representations, dim=1) / K   # [batch_size, user_dim]
 
         return user_representations
 
@@ -157,50 +173,27 @@ class UserEncoder(nn.Module):
     def initialize(self):
         pass
 
-    def forward(self, history_news_representations, history_mask, candidate_news_representations, num_extracted_interests, unique_category_counts):
+    def forward(self, history_news_representations, history_mask, candidate_news_representations, num_extracted_interests, unique_category_counts, interest_adaptive, candidate_aware):
         interest_representations = self.poly_attention(history_news_representations, history_mask, num_extracted_interests)   # [batch_size, num_extracted_interests, interest_dimension]
 
         user_representations = []
-        bs, N, d = candidate_news_representations.size()                                                                                               # [batch_size, np_ratio+1, news_dimension]
+        bs, N, d = candidate_news_representations.size()                                                                                                                                   # [batch_size, np_ratio+1, news_dimension]
         for i in range(N):
-            candidate_news_representation = candidate_news_representations[:, i, :]                                                                    # [batch_size, news_dimension]
-            user_representation = self.interest_candidate_attention(interest_representations, candidate_news_representation, unique_category_counts)   # [batch_size, user_dimension]
+            candidate_news_representation = candidate_news_representations[:, i, :]                                                                                                        # [batch_size, news_dimension]
+            user_representation = self.interest_candidate_attention(interest_representations, candidate_news_representation, unique_category_counts, interest_adaptive, candidate_aware)   # [batch_size, user_dimension]
             user_representations.append(user_representation.unsqueeze(1))
-        user_representations = torch.cat(user_representations, dim=1)                                                                                  # [batch_size, np_ratio+1, news_dimension]
+        user_representations = torch.cat(user_representations, dim=1)                                                                                                                      # [batch_size, np_ratio+1, news_dimension]
         
         return user_representations
-
-###################################################################################################################################################
-
-'''
-class NeighbourEncoder(nn.Module):
-    def __init__(self, opt):
-        super(NeighbourEncoder, self).__init__()
-        self.MHSA = MultiHeadSelfAttention(opt.num_head_c, opt.num_head_c * opt.head_dim, opt.head_dim, opt.head_dim)
-
-    def initialize(self):
-        self.MHSA.initialize()
-
-    def forward(self, candidate_news_representations, hidden_neighbour):
-        candidate_news_representations = torch.unsqueeze(candidate_news_representations, dim=1)  # bs*K, 1, h * d_v + 2dim
-        hidden_neighbour = torch.cat((hidden_neighbour, candidate_news_representations), dim=1)  # bs*K, n+1, h * d_v + 2dim
-        candidate_representation = self.MHSA(candidate_news_representations, hidden_neighbour, hidden_neighbour, mask=None)  # bs*K, 1, h * d_v
-
-        return candidate_representation
-'''
 
 ###################################################################################################################################################
 
 class UserAttentionNetwork(nn.Module):
     def __init__(self, d_model):
         super(UserAttentionNetwork, self).__init__()
-        self.dense = nn.Linear(d_model, 1, bias=True)
 
-    def forward(self, user_representations, s_i, s_p, a_u):
-        w = torch.sigmoid(self.dense(user_representations)).squeeze(-1)
-
-        #s_r = w * s_i + (1-w) * s_p
-        s_r = w * s_i + ((1-w)*(1+a_u)) * s_p
+    def forward(self, s_i, s_p, a_u):
+        s_r = s_i + (1+a_u)*s_p
         
         return s_r
     
@@ -214,7 +207,6 @@ class MODEL(nn.Module):
 
         self.text_encoder = TextEncoder(opt, word_embeddings)
         self.user_encoder = UserEncoder(news_dim=opt.num_head_n*opt.head_dim, interest_dim=opt.num_head_n*opt.head_dim, num_extracted_interests=opt.num_extracted_interests, M=opt.M)
-        #self.neighbour_encoder = NeighbourEncoder(opt)
 
         self.category_dim = opt.category_dim
         self.subcategory_dim = opt.subcategory_dim
@@ -225,6 +217,8 @@ class MODEL(nn.Module):
         self.max_history_news_click_num = max_history_news_click_num
         self.cold_start_users = opt.cold_start_users
         self.cold_start_users_weight = opt.cold_start_users_weight
+        self.interest_adaptive = opt.interest_adaptive
+        self.candidate_aware = opt.candidate_aware
 
         self.category_embedding = nn.Embedding(n_category, self.category_dim, padding_idx=0)
         self.subcategory_embedding = nn.Embedding(n_subcategory, self.subcategory_dim, padding_idx=0)
@@ -244,42 +238,65 @@ class MODEL(nn.Module):
         self.clicks_dense_layer_2 = nn.Linear(self.popularity_dim, self.news_dim, bias=True)
         self.recency_dense_layer_2 = nn.Linear(self.recency_dim, self.news_dim, bias=True)
         self.recency_content_dense_layer = nn.Linear(self.news_dim * 2, 1, bias=True)
-        
-        '''
-        self.category_prediction_layer = nn.Linear(self.news_dim, n_category)
-        '''
 
     ###############################################################
 
     def initialize(self):
         self.text_encoder.initialize()
         self.user_encoder.initialize()
-        #self.neighbour_encoder.initialize()
+
+    ###############################################################
+
+    def IACA_Attention(self, interest_representations: torch.Tensor, candidate_representations: torch.Tensor, unique_category_counts: torch.Tensor, interest_adaptive: bool, candidate_aware: bool) -> torch.Tensor:
+        bs, K, d = interest_representations.shape
+        N = candidate_representations.size(1)
+
+        attention_weights = torch.einsum('bkd,bnd->bkn', interest_representations, candidate_representations)
+
+        if interest_adaptive:
+            selected_K = torch.ceil(torch.log2(self.user_encoder.interest_candidate_attention.M *unique_category_counts.float())).long().clamp_(1, K)
+
+            sort_idx = torch.argsort(attention_weights, dim=1, descending=True)
+            rank_template = torch.arange(K, device=attention_weights.device).view(1, K, 1).expand(bs, K, N)
+            ranks = torch.empty_like(sort_idx)
+            ranks.scatter_(1, sort_idx, rank_template)
+            masked_K = (ranks < selected_K.view(-1, 1, 1)).to(attention_weights.dtype)
+        else:
+            masked_K = attention_weights.new_ones(attention_weights.shape)
+
+        # (w/ or w/o interest_adaptive) + w/ candidate_aware
+        if candidate_aware:
+            interest_scores = (masked_K * attention_weights).sum(dim=1)
+        else:
+            # w/ interest_adaptive + w/o candidate_aware
+            if interest_adaptive:
+                interest_scores = (masked_K * interest_representations).sum(dim=1)
+            # w/o interest_adaptive + w/o candidate_aware
+            else:
+                interest_scores = attention_weights.sum(dim=1) / K
+
+        return interest_scores
 
     ###############################################################
 
     def forward(self, history_mask, candidate_padding,
                 history_title_word, history_title_word_mask,
                 candidate_title_word, candidate_title_word_mask,
-                #neighbour_title_word, neighbour_title_word_mask,
                 history_abstract_word, history_abstract_word_mask,
                 candidate_abstract_word, candidate_abstract_word_mask,
-                #neighbour_abstract_word, neighbour_abstract_word_mask,
-                history_category, candidate_category, #neighbour_category,
-                history_subcategory, candidate_subcategory, #neighbour_subcategory,
+                history_category, candidate_category,
+                history_subcategory, candidate_subcategory,
                 candidate_popularity_label, candidate_recency_label, history_click_num):
 
         bs = history_title_word.shape[0]
         L = history_title_word.shape[1]
         W = history_title_word.shape[2]
         K = candidate_title_word.shape[1]
-        #n = neighbour_title_word.shape[2]
 
         bs_a = history_abstract_word.shape[0]
         L_a = history_abstract_word.shape[1]
         W_a = history_abstract_word.shape[2]
         K_a = candidate_abstract_word.shape[1]
-        #n_a = neighbour_abstract_word.shape[2]
 
         d = self.news_dim
 
@@ -292,12 +309,6 @@ class MODEL(nn.Module):
         candidate_title_word_mask = candidate_title_word_mask.view(bs * K, W)
         candidate_news_title_representation = self.text_encoder(candidate_title_word, candidate_title_word_mask)
         candidate_news_title_representation = candidate_news_title_representation.view(bs, K, -1)
-        '''
-        neighbour_title_word = neighbour_title_word.view(bs * K * n, W)
-        neighbour_title_word_mask = neighbour_title_word_mask.view(bs * K * n, W)
-        neighbour_news_title_representation = self.text_encoder(neighbour_title_word, neighbour_title_word_mask)
-        neighbour_news_title_representation = neighbour_news_title_representation.view(bs, K, n, -1)
-        '''
 
         ### Abstract Representation ###
         history_abstract_word = history_abstract_word.view(bs_a * L_a, W_a)
@@ -308,24 +319,16 @@ class MODEL(nn.Module):
         candidate_abstract_word_mask = candidate_abstract_word_mask.view(bs_a * K_a, W_a)
         candidate_news_abstract_representation = self.text_encoder(candidate_abstract_word, candidate_abstract_word_mask)
         candidate_news_abstract_representation = candidate_news_abstract_representation.view(bs_a, K_a, -1)
-        '''
-        neighbour_abstract_word = neighbour_abstract_word.view(bs_a * K_a * n_a, W_a)
-        neighbour_abstract_word_mask = neighbour_abstract_word_mask.view(bs_a * K_a * n_a, W_a)
-        neighbour_news_abstract_representation = self.text_encoder(neighbour_abstract_word, neighbour_abstract_word_mask)
-        neighbour_news_abstract_representation = neighbour_news_abstract_representation.view(bs_a, K_a, n_a, -1)   
-        '''
 
         ### Category Representation ###
         category_embedding = F.relu(self.category_dense_layer_1(self.category_embedding.weight))
         history_category_representation = self.category_dense_layer_2(category_embedding[history_category])
         candidate_category_representation = self.category_dense_layer_2(category_embedding[candidate_category])
-        #neighbour_category_representation = self.category_dense_layer_2(category_embedding[neighbour_category])
 
         ### Subcategory Representation ###
         subcategory_embedding = F.relu(self.subcategory_dense_layer_1(self.subcategory_embedding.weight))
         history_subcategory_representation = self.subcategory_dense_layer_2(subcategory_embedding[history_subcategory])
         candidate_subcategory_representation = self.subcategory_dense_layer_2(subcategory_embedding[candidate_subcategory])
-        #neighbour_subcategory_representation = self.category_dense_layer_2(subcategory_embedding[neighbour_subcategory])
         
         ### News Representation ###
         history_news = torch.stack([
@@ -348,23 +351,19 @@ class MODEL(nn.Module):
         candidate_news_representations = self.additive_attention(candidate_news, mask=None)
         candidate_news_representations = candidate_news_representations.view(bs, K, d)                
 
-        ### User Representation ###
-        num_extracted_interests = torch.full((bs,), self.num_extracted_interests, dtype=torch.long, device=history_news_representations.device)
-        
-        unique_category_counts = []
-        bs, L = history_category.size()
-        masked_history_category = history_category.masked_fill(history_category == 0, -1)
-        for i in range(bs):
-            user_categorys = masked_history_category[i]                                                 # [max_news_length]
-            unique_categorys = torch.unique(user_categorys[user_categorys != -1])
-            unique_category_counts.append(len(unique_categorys))
-        unique_category_counts = torch.tensor(unique_category_counts, device=history_category.device)   # [batch_size]
-
-        user_representations = self.user_encoder(history_news_representations, history_mask, candidate_news_representations, num_extracted_interests, unique_category_counts)
-        
         ### Interest Score ###
-        interest_scores = torch.sum(user_representations * candidate_news_representations, dim=-1)
-        
+        x = history_category.clone()
+        x[x == 0] = -1                         
+        x_sorted, _ = torch.sort(x, dim=1)
+        valid = x_sorted != -1
+        difference  = torch.ones_like(x_sorted, dtype=torch.bool)
+        difference[:, 1:] = x_sorted[:, 1:] != x_sorted[:, :-1]
+        unique_category_counts = (valid & difference).sum(dim=1)
+
+        extracted_K = torch.full((bs,), self.num_extracted_interests, dtype=torch.long, device=history_news_representations.device)
+        interest_representations = self.user_encoder.poly_attention(history_news_representations, history_mask, extracted_K)
+        interest_scores = self.IACA_Attention(interest_representations, candidate_news_representations, unique_category_counts, self.interest_adaptive, self.candidate_aware)
+
         ### Popularity Score ###
         news_clicks_embedding = F.relu((self.clicks_dense_layer_1(self.news_clicks_embedding.weight)))
         news_recency_embedding = F.relu((self.recency_dense_layer_1(self.news_recency_embedding.weight)))
@@ -384,23 +383,15 @@ class MODEL(nn.Module):
         ### Ranking Score ###
         a_u = torch.sum(history_click_num, dim=1) / ((torch.sum(history_click_num != 0, dim=1) + 1e-8) * self.max_history_news_click_num)
         a_u = a_u.unsqueeze(1)
-
+        
         user_click_counts = torch.sum(history_click_num != 0, dim=1) 
         cold_start_users_mask = (user_click_counts <= self.cold_start_users).float().unsqueeze(1) 
-        a_u = a_u + (self.cold_start_users_weight * cold_start_users_mask)      
+        a_u = a_u + (self.cold_start_users_weight * cold_start_users_mask)
 
         candidate_mask_inf = torch.where(candidate_padding == 0, float('-inf') * torch.ones_like(candidate_padding), torch.zeros_like(candidate_padding).float())
-        ranking_scores = self.user_attention(user_representations, interest_scores, popularity_scores, a_u) + candidate_mask_inf
+        ranking_scores = self.user_attention(interest_scores, popularity_scores, a_u) + candidate_mask_inf
 
         candidate_mask = torch.where(candidate_padding == 0, torch.zeros_like(candidate_padding), torch.ones_like(candidate_padding))
         candidate_lengths = torch.sum(candidate_mask, dim=-1)
 
-        '''
-        ### News Category Classification Task ###
-        category_preds = self.category_prediction_layer(candidate_news_representations)   # [batch_size, np_ratio+1, n_category]
-        '''
-
         return ranking_scores, candidate_lengths
-        '''
-        return ranking_scores, candidate_lengths, category_preds
-        '''
