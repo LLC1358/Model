@@ -2,10 +2,10 @@
 This repository contains the implementation of AMMEPP, a personalized news recommendation model that adaptively models users’ multiple interests and enhances news popularity prediction to address cold-start problems.
 
 ## 1 Download
-### 1-1 Datasets
+### 1.1 Datasets
 Download the datasets (MIND-small and MIND-large) from https://msnews.github.io/.
 
-### 1-2 Pre-trained Word Vectors
+### 1.2 Pre-trained Word Vectors
 Download the pre-trained word vectors (glove.840B.300d.zip) from https://github.com/stanfordnlp/GloVe.
 
 ## 2 Preprocessing
